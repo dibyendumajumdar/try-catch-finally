@@ -329,6 +329,8 @@ struct Table {
 
   Table() { setnodevector(0); }
 
+  ~Table() { if (!isdummy(node)) delete[] node; }
+
   iterator begin() {
     // return iterator adjusted to first non-nil node
     return iterator(gnode(0), gnode(sizenode())).adjust();
