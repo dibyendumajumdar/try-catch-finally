@@ -22,15 +22,16 @@
 * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ******************************************************************************/
 
-
 #ifndef HASHTABLE_H
 #define HASHTABLE_H
 
 #include <cassert>
-#include <cstdio>
 #include <cinttypes>
+#include <cstdio>
 
 #include <string>
+
+namespace ravi {
 
 // The hashtable implementation below is based upon
 // the Lua table implementation. Its main features are
@@ -39,49 +40,46 @@
 // c) you cannot delete keys
 // d) both key and value must have a special nil value
 
-template <typename K, typename V> struct Node;
-template <typename T> struct ValueConverter;
-template <typename T> struct NilHelper;
+template <typename T>
+struct ValueConverter;
+template <typename T>
+struct NilHelper;
 
 // Wraps the key type
-template <typename K> class TKey {
-  typedef NilHelper<K> nil_helper;
+template <typename K, typename KNH>
+class TKey {
+  int32_t next_;  // index of next node in the hash chain, -1 == null
   K tvk_;
-  int32_t next_; // index of next node in the hash chain, -1 == null
 
-public:
-  TKey() : next_(-1) {
-    setnil();
-  }
-  bool isnil() const { return nil_helper::is_nil(&tvk_); }
-  void setnil() {
-    nil_helper::set_nil(&tvk_);
-  }
-  void setkey(const K &k) {
-    tvk_ = k;
-  }
+ public:
+  TKey() : next_(-1) { setnil(); }
+  bool isnil() const { return KNH::is_nil(&tvk_); }
+  void setnil() { KNH::set_nil(&tvk_); }
+  void setkey(const K &k) { tvk_ = k; }
   const K &key() const { return tvk_; }
   int32_t next() const { return next_; }
-  void setnext(int32_t n) { assert(n >= -1); next_ = n; }
+  void setnext(int32_t n) {
+    assert(n >= -1);
+    next_ = n;
+  }
 };
 
-template <typename V> class TValue {
-  typedef NilHelper<V> nil_helper;
+template <typename V, typename VNH>
+class TValue {
   V value_;
 
-public:
+ public:
   TValue() { setnil(); }
-  bool isnil() const { return nil_helper::is_nil(&value_); }
-  void setnil() { nil_helper::set_nil(&value_); }
-  void setval(const V &v) {
-    value_ = v;
-  }
+  bool isnil() const { return VNH::is_nil(&value_); }
+  void setnil() { VNH::set_nil(&value_); }
+  void setval(const V &v) { value_ = v; }
   const V &val() const { return value_; }
 };
 
-template <typename K, typename V> struct Node {
-  typedef TKey<K> key_type;
-  typedef TValue<V> value_type;
+template <typename K, typename V, typename KNH, typename VNH>
+struct Node {
+  typedef TKey<K, KNH> key_type;
+  typedef TValue<V, VNH> value_type;
 
   key_type i_key;
   value_type i_val;
@@ -91,24 +89,21 @@ template <typename K, typename V> struct Node {
 };
 
 template <typename node_type>
-class NodeIterator
-    : public std::iterator<std::input_iterator_tag, node_type> {
+class NodeIterator : public std::iterator<std::input_iterator_tag, node_type> {
   node_type *p_;
   node_type *last_;
 
-public:
+ public:
   NodeIterator(node_type *p, node_type *last) : p_(p), last_(last) {}
   NodeIterator(const NodeIterator &other) : p_(other.p_), last_(other.last_) {}
   NodeIterator &operator++() {
-    if (p_ < last_)
-      ++p_;
+    if (p_ < last_) ++p_;
     adjust();
     return *this;
   }
   NodeIterator operator++(int) {
     NodeIterator tmp(*this);
-    if (p_ < last_)
-      operator++();
+    if (p_ < last_) operator++();
     adjust();
     return tmp;
   }
@@ -118,23 +113,23 @@ public:
   node_type *operator->() { return p_; }
   // moves the current node to next non-nil node
   NodeIterator &adjust() {
-    while (p_ < last_ && (p_->i_key.isnil() || p_->i_val.isnil()))
-      p_++;
+    while (p_ < last_ && (p_->i_key.isnil() || p_->i_val.isnil())) p_++;
     return *this;
   }
 };
 
-template <typename K, typename V, typename HashFunc = std::hash<K>>
+template <typename K, typename V, typename KNH = NilHelper<K>,
+          typename VNH = NilHelper<V>, typename HashFunc = std::hash<K>>
 struct Table {
-  typedef Node<K, V> node_type;
+  typedef Node<K, V, KNH, VNH> node_type;
   typedef typename node_type::key_type key_type;
   typedef typename node_type::value_type value_type;
   typedef NodeIterator<node_type> iterator;
 
-private:
-  node_type *node;         // start of the node vector
-  int32_t   lastfree;      // points to one past last available free node
-  uint32_t  lsizenode;     // size of the node vector stored as power of 2
+ private:
+  node_type *node;     // start of the node vector
+  int32_t lastfree;    // points to one past last available free node
+  uint32_t lsizenode;  // size of the node vector stored as power of 2
 
   node_type dummy_node;
   HashFunc hash;
@@ -144,10 +139,17 @@ private:
 
   // determine the size of the node vector
   // following is equivalent to 2^lsizenode
-  int32_t sizenode() const { int32_t n = 1 << lsizenode; assert(n >= 0); return n; }
+  int32_t sizenode() const {
+    int32_t n = 1 << lsizenode;
+    assert(n >= 0);
+    return n;
+  }
 
   // get node at position i
-  node_type *gnode(int32_t i) const { assert(i >= 0); return &node[i]; }
+  node_type *gnode(int32_t i) const {
+    assert(i >= 0);
+    return &node[i];
+  }
 
   /*
   ** returns the `main' position of an element in a table (that is, the index
@@ -162,8 +164,7 @@ private:
     // Note lastfree points to one past the last free position
     while (lastfree > 0) {
       lastfree--;
-      if (gnode(lastfree)->i_key.isnil())
-        return lastfree;
+      if (gnode(lastfree)->i_key.isnil()) return lastfree;
     }
     return -1;
   }
@@ -179,9 +180,7 @@ private:
     int32_t i = sizenode();
     while (i-- > 0) {
       node_type *n = gnode(i);
-      if (!n->i_val.isnil()) {
-        totaluse++;
-      }
+      if (!n->i_val.isnil()) { totaluse++; }
     }
     return totaluse;
   }
@@ -216,9 +215,9 @@ private:
     if (size == 0) { /* no elements to hash part? */
       node = &dummy_node;
       lsize = 0;
-    } else {
-      if (size < 4)
-        size = 4;
+    }
+    else {
+      if (size < 4) size = 4;
       lsize = ceillog2(size);
       assert(lsize <= MAXBITS);
       size = 1 << lsize;
@@ -235,7 +234,7 @@ private:
     /* create new hash part with appropriate size */
     setnodevector(nhsize);
     /* re-insert elements from hash part */
-    int32_t n = (1 << oldhsize) - 1; // index of last node in old vector
+    int32_t n = (1 << oldhsize) - 1;  // index of last node in old vector
     for (int32_t i = n; i >= 0; i--) {
       node_type *old = nold + i;
       if (!old->i_val.isnil()) {
@@ -243,8 +242,7 @@ private:
         *set(old->i_key.key()) = old->i_val;
       }
     }
-    if (!isdummy(nold))
-      delete[] nold;
+    if (!isdummy(nold)) delete[] nold;
   }
 
   value_type *set(const K &key) {
@@ -256,27 +254,28 @@ private:
   }
 
   void rehash(K ek) {
-    int32_t totaluse = numusehash() + 1; // count in-use keys in the table, add 1
+    int32_t totaluse =
+        numusehash() + 1;  // count in-use keys in the table, add 1
     // resize the table to new computed sizes
     resize(totaluse);
   }
 
-public:
+ public:
   /*
   ** main search function - if key is not found
   ** nullptr is returned
   */
   value_type *get(const K &key) {
-      int32_t pos = mainposition(key);
-      do {
-          auto n = gnode(pos);
-          if (!n->i_key.isnil() && n->i_key.key() == key)
-              return &n->i_val;
-          else {
-            pos = n->i_key.next();
-          }
-      } while (pos != -1);
-      return nullptr;
+    int32_t pos = mainposition(key);
+    do {
+      auto n = gnode(pos);
+      if (!n->i_key.isnil() && n->i_key.key() == key)
+        return &n->i_val;
+      else {
+        pos = n->i_key.next();
+      }
+    } while (pos != -1);
+    return nullptr;
   }
 
   // Insert a new key - if key already exists then
@@ -288,10 +287,10 @@ public:
     node_type *mp = gnode(mainpos);
     if (!mp->i_val.isnil() || isdummy(mp)) {
       node_type *othern;
-      int32_t freepos = getfreepos(); // get a free place
-      if (freepos == -1) {         // cannot find a free place?
-        rehash(key);               // grow table
-        return set(key);           // insert key into grown table
+      int32_t freepos = getfreepos();  // get a free place
+      if (freepos == -1) {             // cannot find a free place?
+        rehash(key);                   // grow table
+        return set(key);               // insert key into grown table
       }
       node_type *n = gnode(freepos);
       // mp is the colliding node
@@ -299,7 +298,7 @@ public:
       // get the main node at the key associated with mp
       int32_t otherpos = mainposition(mp->i_key.key());
       othern = gnode(otherpos);
-      if (otherpos != mainpos) { // is colliding node out of its main position?
+      if (otherpos != mainpos) {  // is colliding node out of its main position?
         // yes; move colliding node into free position
         // as 'othern' points to the main position
         // and 'mp' is in the chain starting at 'othern' so search
@@ -310,10 +309,12 @@ public:
           othern = gnode(otherpos);
         }
         // Now we need to free 'mp' so link othern->next = n
-        othern->i_key.setnext(freepos); // redo the chain with 'n' in place of mp
-        *n = *mp; // copy colliding node into free pos. (mp->next also goes)
-        mp->i_val.setnil(); // now 'mp' is free
-      } else {              // colliding node is in its own main position
+        othern->i_key.setnext(
+            freepos);  // redo the chain with 'n' in place of mp
+        *n = *mp;  // copy colliding node into free pos. (mp->next also goes)
+        mp->i_val.setnil();  // now 'mp' is free
+      }
+      else {  // colliding node is in its own main position
         // new node will go into free position
         // insert n into the chain
         n->i_key.setnext(mp->i_key.next());
@@ -329,8 +330,8 @@ public:
   Table() { setnodevector(0); }
 
   iterator begin() {
-      // return iterator adjusted to first non-nil node
-      return iterator(gnode(0), gnode(sizenode())).adjust();
+    // return iterator adjusted to first non-nil node
+    return iterator(gnode(0), gnode(sizenode())).adjust();
   }
 
   iterator end() { return iterator(gnode(sizenode()), gnode(sizenode())); }
@@ -342,39 +343,42 @@ public:
     char buf[80];
     for (int32_t i = 0; i < sizenode(); i++) {
       node_type *n = gnode(i);
-      if (n->i_key.isnil()) {
-        printf("[%d] key is nil\n", i);
-      } else {
+      if (n->i_key.isnil()) { printf("[%d] key is nil\n", i); }
+      else {
         printf("[%d] key = %s", i,
                kc::as_string(buf, sizeof buf, n->i_key.key()));
         printf(" mainpos = %d", mainposition(n->i_key.key()));
-        printf(" next = %d",
-               n->i_key.next());
+        printf(" next = %d", n->i_key.next());
         printf(" value = %s\n", vc::as_string(buf, sizeof buf, n->i_val.val()));
       }
     }
   }
 };
 
-template <> struct ValueConverter<int> {
+template <>
+struct ValueConverter<int> {
   static const char *as_string(char *buf, size_t n, int i) {
     snprintf(buf, n, "%d", i);
     return buf;
   }
 };
 
-template <> struct ValueConverter<double> {
+template <>
+struct ValueConverter<double> {
   static const char *as_string(char *buf, size_t n, double i) {
     snprintf(buf, n, "%0.6f", i);
     return buf;
   }
 };
 
-template <> struct ValueConverter<std::string> {
+template <>
+struct ValueConverter<std::string> {
   static const char *as_string(char *buf, size_t n, const std::string &i) {
     snprintf(buf, n, "%.*s", (int)(n - 1), i.c_str());
     return buf;
   }
 };
+
+}
 
 #endif
