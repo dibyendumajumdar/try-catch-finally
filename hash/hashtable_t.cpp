@@ -1,7 +1,7 @@
 #include "hashtable.h"
 #include <limits>
 
-using namespace ravi;
+namespace ravi {
 
 template <>
 struct NilHelper<int> {
@@ -16,6 +16,10 @@ struct NilHelper<std::string> {
   static void set_nil(std::string *v) { v->clear(); }
   static bool is_nil(const std::string *v) { return v->length() == 0; }
 };
+
+}
+
+using namespace ravi;
 
 int test_table() {
   typedef Table<int, int> TableIntInt;
