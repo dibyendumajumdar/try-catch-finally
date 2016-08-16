@@ -29,6 +29,7 @@
 #include <cinttypes>
 #include <cstdio>
 
+#include <functional>
 #include <string>
 
 namespace ravi {
